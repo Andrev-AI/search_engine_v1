@@ -1,58 +1,231 @@
 # search_engine_v1
 
-## Ideia:
+[English version](README.md) • [Português-Brasil version (click)](README.pt-BR.md)
 
-Com meus estudos sobre pagerank, indexação, funcionamento de motores de busca, decidi aplicar um pouco do que aprendi e vi em um projeto próprio.
-Esse projeto vai evoluir, essa é apenas uma versão demonstrativa mas já estou trabalhando em versões mais completas e capaz.
+## Idea
 
-## Crawler e Scraper `crawler_and_scraper.py`
+After studying PageRank, indexing, and how search engines work, I decided to apply what I learned into a personal project.
 
-**Crawler** já é algo bem conhecido, usado pra acessar sites e extrair links. **Scraper** faz a parte de extrair dados da página. 
-Nesse projeto o sistema ele opera misto, primeiro ele acessa a página usando um sistema `asyncio` que permite criar `workers` que
-acessarão as páginas e então fazer a parter de crawling, que é extrair os links, mas de scraping extraindo textos e metadados.
+This project will keep evolving. This is only a demo version, but I’m already working on more complete and capable versions.
 
-### informações extraídas
-* Titulo.
-* Data e hora.
-* Idioma
-* texto da página.
-* URLs.
+---
 
-Também é salvo data e hora que foi extraído e e quantos links encontrados. Esses links realimentam o sistema pra buscar neles mais links e dados da página.
+## Crawler & Scraper (`crawler_and_scraper.py`)
 
-### asynsio
+A **crawler** is responsible for visiting pages and extracting links. A **scraper** extracts the page content and metadata.
 
-Usa `workers` definido a quantidade em `class CrawlerConfic:` -> `max_global_workers: int = 50` aqui está definido 50 mas pode colocar valor **int** que quiser.
-cada worker atua independente e assíncrono entrando no site e buscando mais links pra realimentar o crawler e repetir processo e tbem fazer a raspagem. Como são independentes eles não esperam o "irmão" terminar para partir para os próximos sites, ele continua a lista das URLs encontradas e continua. 
-* `save_chunk_size: int = 20` esse é sistema de salvamento periódico onde a cada 20 urls visitadas e extraídas ele salva e então limpa a memória para não ficar salvo em variável. 
-* `max_total_urls: int = 1000 ` controla limite máximo de sites que vai ser feito crawling e scraping, isso é para ter um limite para não fazer indefinidamente pois ele poderia fazer sim toda a WEB.
-  aqui vale uma observação pois como os workers são independentes pode acontecer de o limite passar um pouco. Mas não é um grande desvio, pode também encerrar o terminal.
-* ` max_concurrent_per_host: int = 2` quantos workers pode acessar o mesmo site, cuidado pois vários deles podem ser interpretados como DDoS e até derrubar sites sem proteção.
-* `delay_between_requests: float = 1.0` Cooldown por worker, após terminar um site e ir para a próxima URL. Ajuda também evitar ser interpretado como DDoS.
-* `request_timeout: int = 15` quanto tempo o worker espera o site retornar um resultado antes de tentar novamente.
-* `max_retries: int = 3` quantas tentativas antes de desistir se o site der erro.
-* `retry_backoff: int = 2` tempo de expera que cresce exponencial se site der erro. Exemplo se for 2 = 2 segundos. Ele cresce exponencial se der erro exemplo erro na primeira é espera 2 segundos antes de tentar novamente. Segundo erro espera 4s, terceiro espera 6s antes de tentar novamente até atingir limite em `max_retries`. Isso serve para evitar ser interpretado como spam ou DDoS.
-* ` respect_robots: bool = True` Mantenha sempre **True**. Respeita os Robots.txt. Não seje uma mula e mude para **False**.
-* `seeds` urls iniciais, a partir das urls e dados encontrados nela, cria-se a árvore e seus ínumeros galhos.
+In this project, the system works in a hybrid way:
 
-## Indexer:
+1. It visits pages asynchronously using `asyncio`.
+2. Workers extract links (**crawling**) and also extract text + metadata (**scraping**).
+3. The extracted links feed the system again, expanding the crawl graph.
 
-Usa `BM25`, `Pagerank`, `Index_factors`. Não explicarei **BM25** e **Pagerank**. O Google contém mais de 14 mil fatores de indexação segundo estimativas já que não é público. Yandex 1400+. Isso por que eles analisam conteúdo, estrutura, spam, etc. O meu eu simplifiquei em 8. que serão listados abaixo. Esses fatores servem pra pontuar o site além do pagerank e da correspondência do BM25.
-Isso garante que sites se sobressaiam a outros e se ajuste mais com o que foi pesquisado. 
+### Extracted information
 
-### `class IndexerController`: Fatores de indexação:
+- Title
+- Date and time
+- Language
+- Page text
+- URLs
 
-* `scraped_file: str = "scraped_data.json"` input e `output_index_file: str = "index.json"` output.
-* `limit: int = 0` limite de sites indexados. Se 0 significa infinito isso faz sentido pq como vc quer salvar 0 chunk de X valor? Não rode o código. Por isso 0 seria infito que seria tudo que tem no `scraped_file`.
-* `save_chunk_size: int = 10` salvamentos de chunks. Salva no output file a cada X sites indexados. Serve para salvamento em caso de erros e também não excer demais a memória RAM. Ele limpa buffer após salvar e continua.
-* **ulr length** que analisa aspectos da URL e pontualiza.
-* **Content legth** que é tamanho do coteúdo da página.
-* **TLD** URLs que terminarem com esses domínios ganham mais pontos
-* **AUTHORITHY LINKS** que é os sites que se forem apontados ele ganha mais pontos. 
-* **LANGUAGE** sites com esse Idioma ganham mais pontos.
+It also stores:
+- The date and time when the page was extracted
+- How many links were found
+
+Those links are used as new inputs for the crawler.
+
+---
+
+## Asyncio Workers
+
+The crawler uses multiple asynchronous workers, configured in:
+
+`class CrawlerConfig:` → `max_global_workers: int = 50`
+
+You can set any integer value.
+
+Workers run independently. They don’t wait for each other. Each one keeps consuming discovered URLs, visiting pages, extracting links and content, and continuing the process.
+
+Important config fields:
+
+- `save_chunk_size: int = 20`  
+  Periodic saving system. Every 20 visited pages, it saves to disk and clears memory to avoid keeping everything in RAM.
+
+- `max_total_urls: int = 1000`  
+  Maximum number of URLs to crawl and scrape. This prevents the crawler from running forever.
+
+  ⚠️ Since workers are asynchronous, the system may slightly exceed this limit.
+
+- `max_concurrent_per_host: int = 2`  
+  How many workers can hit the same host at the same time.  
+  Be careful: too many requests can be interpreted as DDoS and may cause sites to block you.
+
+- `delay_between_requests: float = 1.0`  
+  Cooldown per worker between requests. Helps reduce load and avoid being flagged.
+
+- `request_timeout: int = 15`  
+  How long a worker waits for a response before retrying.
+
+- `max_retries: int = 3`  
+  Maximum retries before giving up.
+
+- `retry_backoff: int = 2`  
+  Exponential backoff factor. Example:
+  - 1st error: wait 2s
+  - 2nd error: wait 4s
+  - 3rd error: wait 6s  
+  This helps prevent spam behavior.
+
+- `respect_robots: bool = True`  
+  Keep this **True**. It respects `robots.txt`.  
+   Don't be a mule and set this to **False**.
+
+- `seeds`  
+  Initial URLs. From them, the system expands into a link graph.
+
+---
+
+## Fake User-Agent
+
+The system uses `fake-user-agent` to simulate different devices/browsers.
+
+However, this is not state-of-the-art.
+
+The best approach for modern dynamic websites (React, Next.js, etc.) would be using **Playwright**.
+
+That will be implemented in a future version.
+
+---
+
+## Indexer
+
+The indexer uses:
+
+- **BM25**
+- **PageRank**
+- **Index Factors**
+
+I won’t explain BM25 and PageRank here.
+
+Google is estimated to use over 14,000 ranking factors (not public).  
+Yandex is estimated around 1,400+.
+
+My project uses **8 simplified factors**.
+
+These factors help rank pages beyond BM25 relevance and PageRank, improving result quality.
+
+---
+
+## `class IndexerController`: Ranking Factors
+
+- `scraped_file: str = "scraped_data.json"` (input)
+- `output_index_file: str = "index.json"` (output)
+
+- `limit: int = 0`  
+  Maximum number of indexed pages.  
+  If `0`, it means “no limit” (index everything in the scraped file).
+
+- `save_chunk_size: int = 10`  
+  Saves the index every X pages. Prevents RAM overload and helps recover from errors.
+
+- `text_preview_max_chars: int = 1500`  
+  Stores a preview of the page text for search results.
+
+Ranking factors include:
+
+- **URL length** (URL structure scoring)
+- **Content length** (page content size scoring)
+- **TLD scoring** (certain domains get a boost)
+- **Authority links** (boost if referenced by trusted sites)
+- **Language** (boost pages in preferred languages)
+
+---
 
 ## Searcher
 
-Aqui seria a caixa de pesquisa do Google, Yahoo, Yandex, DuckDuck go, Bing, Brave Search etc.
-`query` é o que você quer pesquisar.
+This is the “search box” part (Google, Bing, DuckDuckGo, Brave, etc).
 
+`query` is what you type to search.
+
+The system returns:
+
+- Title
+- URL
+- Language
+- Text preview
+- Scores
+
+It runs BM25 against the index, then combines relevance + ranking scores.
+
+### Search options
+
+- `results_limit=10`  
+  Number of results displayed.
+
+- `order="desc"`  
+  Score ordering:
+  - `asc`: worst → best
+  - `desc`: best → worst
+
+- `preview_length=260`  
+  Preview size shown in the search output.
+
+The indexer stores up to 1500 chars, but the searcher prints only 260.
+
+---
+
+## TODO / Future
+
+This project still needs a lot to reach mainstream level.
+
+If Google is a benchmark 10/10, this system is around 4/10 right now.  
+But I’m already working on new versions that may reach 7/10.
+
+Planned improvements:
+
+- Use a real database instead of `.json` files (JSON is easier for early development)
+- Compress extracted data
+- Use Playwright for dynamic websites
+- Add more ranking factors
+- Add a watcher system to detect site updates
+- Use sitemap parsing for better crawling + update detection
+- Use embeddings instead of only BM25
+- Add topic classification
+- Improve strict URL limits (async workers can slightly exceed limits)
+
+---
+
+## How to Run
+
+Optimized for Windows. Adapt as needed for your OS.
+
+Runs in terminal.
+
+**Python 3.10+ required**  
+Recommended: **Python 3.11** + latest `pip`
+
+### 1) Run the crawler & scraper
+
+Before running, check:
+- workers count
+- max URLs
+- seed URLs
+
+```
+python crawl_and_scraper.py
+```
+---
+
+### 2) Run the indexer (PageRank + ranking factors)
+
+```
+python indexer.py
+```
+---
+
+### 3) Run the search engine
+Now you can type queries and see real results.
+
+```
+python search.py
+```
